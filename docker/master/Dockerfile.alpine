@@ -1,0 +1,41 @@
+ARG NGINX_VERSION=1.21.1
+FROM soulteary/prebuilt-nginx-modules:base-${NGINX_VERSION}-alpine AS Builder
+
+ARG MODULE_CHECKSUM=2c81d5ec709221dcbbad874662411281e1bdf78f
+ARG MODULE_VERSION=master
+ARG MODULE_NAME=ngx-http-qrcode-module-src
+ARG MODULE_SOURCE=https://github.com/nginx-with-docker/ngx-http-qrcode-module-src
+
+ARG MODULE_LIBQR_NAME=module-deps-libqrencode
+ARG MODULE_LIBQR_VERSION=4.1.1
+ARG MODULE_LIBQR_CHECKSUM=b24f0580b5404c1892e57e56b3efe772d218bb13
+
+RUN apk add --no-cache --virtual .build-deps gcc libc-dev make openssl-dev pcre-dev zlib-dev linux-headers libxslt-dev gd-dev geoip-dev perl-dev libedit-dev mercurial bash alpine-sdk findutils unzip && \
+    apk add --no-cache --virtual .build-qrcode openssl-dev pcre-dev zlib-dev build-base autoconf automake libtool libpng-dev libgd pcre pcre-dev pkgconfig gd-dev && \
+    mkdir -p /usr/src && \
+    cd /usr/src && \
+    curl -L "${MODULE_SOURCE}/archive/refs/heads/${MODULE_VERSION}.zip" -o "v${MODULE_VERSION}.zip" && \
+    echo "${MODULE_CHECKSUM}  v${MODULE_VERSION}.zip" | shasum -c && \
+    unzip "v${MODULE_VERSION}.zip" && \
+    mv "$MODULE_NAME-$MODULE_VERSION" "$MODULE_NAME" && \
+    cd /usr/src && \
+    curl -L "https://github.com/nginx-with-docker/module-deps-libqrencode/archive/refs/tags/v${MODULE_LIBQR_VERSION}.tar.gz" -o "v${MODULE_LIBQR_VERSION}.tar.gz" && \
+    echo "${MODULE_LIBQR_CHECKSUM}  v${MODULE_LIBQR_VERSION}.tar.gz" | shasum -c && \
+    tar -zxC /usr/src -f v${MODULE_LIBQR_VERSION}.tar.gz && \
+    mv ${MODULE_LIBQR_NAME}-${MODULE_LIBQR_VERSION}/ ${MODULE_LIBQR_NAME} && \
+    cd ${MODULE_LIBQR_NAME} && \
+    ./autogen.sh && LDFLAGS=-lgd ./configure && make && make install && \
+    cd /usr/src/nginx && \
+    CONFARGS=$(nginx -V 2>&1 | sed -n -e 's/^.*arguments: //p') \
+    CONFARGS=${CONFARGS/-Os -fomit-frame-pointer -g/-Os} && \
+    echo $CONFARGS && \
+    ls -al  ../$MODULE_NAME && \
+    ./configure --with-compat $CONFARGS --add-dynamic-module=../${MODULE_NAME}/ && \
+    make install && \
+    apk del .build-deps .build-qrcode && rm -rf /tmp/* && rm -rf /var/cache/apk/* && rm -rf /usr/src/
+
+FROM scratch
+
+COPY --from=Builder /usr/sbin/nginx /
+COPY --from=Builder /etc/nginx/modules/ngx_http_qrcode_module.so /
+COPY --from=Builder /usr/local/lib/libqrencode.so.4.1.1 /
