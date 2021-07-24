@@ -1,0 +1,2 @@
+# ngx_http_qrcode_module
+ngx_http_qrcode_module
